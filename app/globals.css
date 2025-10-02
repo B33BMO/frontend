@@ -1,26 +1,39 @@
 @import "tailwindcss";
 
+/* lil’ dark glass baseline */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --panel: rgba(255,255,255,0.06);
+  --panel-2: rgba(255,255,255,0.08);
+  --border: rgba(255,255,255,0.14);
 }
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html, body {
+  height: 100%;
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  @apply text-zinc-100;
+  background: radial-gradient(1200px 600px at 10% 0%, #111729 0%, #0b0c10 40%, #0b0c10 100%);
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.btn {
+  @apply px-4 py-3 rounded-xl font-semibold text-sm transition;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
+}
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  border-color: rgba(255,255,255,0.22);
+}
+.input {
+  @apply w-full min-h-[100px] p-3 rounded-xl text-[15px] leading-snug;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  outline: none;
 }
