@@ -24,7 +24,7 @@ from rag_ollama import ask_ollama
 MAX_WORKERS = int(os.environ.get("RAG_WORKERS", "4"))
 DEFAULT_K = int(os.environ.get("RAG_K", "6"))
 JOB_TTL_SECONDS = int(os.environ.get("RAG_JOB_TTL", "3600"))
-ASK_TIMEOUT = int(os.environ.get("ASK_TIMEOUT", "50"))  # API hard timeout (sec)
+ASK_TIMEOUT = int(os.environ.get("ASK_TIMEOUT", "85"))  # API hard timeout (sec)
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
