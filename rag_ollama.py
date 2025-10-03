@@ -21,7 +21,7 @@ Rules:
 """
 
 
-def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 2200) -> str:
+def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 1000) -> str:
     buf, total = [], 0
     for h in hits:
         snippet = (h.get("text") or "").strip()
@@ -62,8 +62,9 @@ def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
         "stream": False,
         "options": {
             "temperature": 0.2,
-            "num_ctx": 3072,
+            "num_ctx": 2048,
             "num_predict": 160,  # keep it snappy
+            "num_thread": 8,
         },
     }
 

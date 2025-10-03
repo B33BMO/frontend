@@ -41,7 +41,7 @@ export async function POST(req: Request) {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify(payload),
-      timeout: 60000,
+      timeout: 600000,
     });
 
     const text = await resp.text();
