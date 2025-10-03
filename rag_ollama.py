@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 from nfpa_qa import search  # reuse your built index + retrieval
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct")
 
 SYSTEM_PROMPT = """You are a strict code-compliance assistant.
 Answer ONLY using the provided context from NFPA 13 (2022) and PCI NFPA 13R.
