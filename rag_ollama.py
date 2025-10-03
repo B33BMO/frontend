@@ -16,7 +16,7 @@ Answer ONLY using the provided context from NFPA 13 (2022) and PCI NFPA 13R.
 - Be concise and precise. Do not speculate. Do not invent page numbers.
 """
 
-def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 3500) -> str:
+def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 2200) -> str:
     buf, total = [], 0
     for h in hits:
         snippet = (h.get("text") or "").strip()
@@ -53,8 +53,8 @@ def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
         "stream": False,
         "options": {
             "temperature": 0.2,
-            "num_ctx": 4096,
-            "num_predict": 96,  # keep it snappy
+            "num_ctx": 3072,
+            "num_predict": 64,  # keep it snappy
         },
     }
 

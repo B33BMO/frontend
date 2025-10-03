@@ -202,7 +202,7 @@ def _bm25_scores(q: str, texts: List[str], topk: int) -> List[Tuple[int, float]]
     top_idx = bm25.get_top_n(q.lower().split(), list(range(len(texts))), n=topk)
     return [(int(i), float(topk - r)) for r, i in enumerate(top_idx)]
 
-def search(query: str, k: int = 8) -> List[Dict[str, Any]]:
+def search(query: str, k: int = 4) -> List[Dict[str, Any]]:
     corpus, texts, embs = load_index_cached()
     sem_hits = _semantic_search(query, texts, embs, k)
     bm_hits  = _bm25_scores(query, texts, k)
