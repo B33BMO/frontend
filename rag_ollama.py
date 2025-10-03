@@ -47,20 +47,16 @@ def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
-    {
                 "role": "user",
-                "content": f"""Context:
-                {context}
-
-                Question: {q}
-
-                Write a short compliance answer:
-                - Start with a 1–2 sentence conclusion citing **body** sections when claiming “required”.
-                - If any support is only Annex, say “Annex (advisory)” explicitly.
-                - Then list 1–3 supporting bullets with citations.
-                """
-                }
-
+                "content": (
+                    f"Context:\n{context}\n\n"
+                    f"Question: {q}\n\n"
+                   """ Write a short compliance answer:
+- Start with a 1–2 sentence conclusion citing **body** sections when claiming “required”.
+- If any support is only Annex, say “Annex (advisory)” explicitly.
+- Then list 1–3 supporting bullets with citations.
+"""
+                ),
             },
         ],
         "stream": False,
