@@ -1,53 +1,30 @@
-// page.tsx
+// app/page.tsx
 "use client";
-
-import { useState } from "react";
+import React from "react";
 import AskForm from "@/components/AskForm";
 import AnswerBox from "@/components/AnswerBox";
-import HitCard from "@/components/HitCard";
-import type { AskResponse, Hit as HitType } from "@/lib/pdfSources";
 
 export default function Page() {
-  const [answer, setAnswer] = useState<string>("");   // keep string
-  const [hits, setHits] = useState<HitType[]>([]);
-
-  function handleResult(data: AskResponse) {
-    setAnswer(data.answer ?? "");
-    setHits(Array.isArray(data.hits) ? data.hits : []);
-  }
+  const [result, setResult] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   return (
-    <main className="space-y-4">
-      <div className="card">
-        <h1 className="text-[22px] font-semibold tracking-wide">
-          NFPA 13 / 13R — Q&amp;A
-        </h1>
-        <p className="text-zinc-400 text-sm mt-1">
-          Answers strictly from the two PDFs. Citations open the exact page.
-        </p>
+    <main className="max-w-3xl mx-auto p-6 space-y-6">
+      <h1 className="text-3xl font-semibold">NFPA 13 / 13R — Q&amp;A</h1>
+      <p className="text-neutral-400">
+        Answers strictly from the two PDFs. Citations open the exact page.
+      </p>
 
-        <div className="mt-4">
-          <AskForm onResult={handleResult} />
-        </div>
+      <AskForm
+        onResult={(d) => setResult(d)}
+        onLoading={setLoading}
+        onError={setError}
+      />
 
-        {/* Always show an answer box so you see errors/empty text too */}
-        <div className="mt-4">
-          <AnswerBox answer={answer} />
-        </div>
+      <AnswerBox result={result} loading={loading} error={error} />
 
-        <div className="mt-4">
-          <h3 className="text-zinc-400 text-sm font-semibold mb-2">
-            Top supporting passages
-          </h3>
-          {hits.length === 0 ? (
-            <div className="text-zinc-500 text-sm italic">No hits yet.</div>
-          ) : (
-            hits.map((h, i) => <HitCard key={i} hit={h} />)
-          )}
-        </div>
-      </div>
-
-      <div className="text-center text-zinc-500 text-xs">
+      <div className="text-center text-neutral-500 text-sm">
         Sources: NFPA 13-2022 &amp; PCI NFPA 13R • Served via FastAPI proxy
       </div>
     </main>

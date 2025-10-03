@@ -1,81 +1,64 @@
-// AskForm.tsx
+// components/AskForm.tsx
 "use client";
-
-import { useState } from "react";
-import type { AskResponse } from "@/lib/pdfSources";
+import React from "react";
 
 export default function AskForm({
   onResult,
+  onLoading,
+  onError,
 }: {
-  onResult: (data: AskResponse) => void;
+  onResult: (data: any) => void;
+  onLoading: (val: boolean) => void;
+  onError: (msg: string | null) => void;
 }) {
-  const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = React.useState("");
 
-  async function ask() {
-    if (!q.trim()) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await fetch("/api/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ q: q.trim(), k: 6 }), // keep k modest
-      });
-      const text = await res.text();       // read as text first
-      let raw: any = null;
-      try { raw = JSON.parse(text); } catch { /* not JSON? */ }
-
-      console.log("[/api/ask] status", res.status, "raw:", raw ?? text);
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
-
-      const normalized: AskResponse = {
-        answer: raw?.result?.answer ?? raw?.answer ?? "",
-        hits: Array.isArray(raw?.result?.hits)
-          ? raw.result.hits
-          : Array.isArray(raw?.hits)
-          ? raw.hits
-          : [],
-      };
-
-      // Ensure we always show something
-      if (!normalized.answer) normalized.answer = "(empty answer)";
-      onResult(normalized);
-    } catch (e: any) {
-      setErr(e?.message || "Request failed");
-      // also push something up so the page shows a box
-      onResult({ answer: `(error) ${e?.message || "Request failed"}`, hits: [] });
-      console.error("ask /api/ask error:", e);
-    } finally {
-      setBusy(false);
+  async function submit() {
+    onError(null);
+    if (!q.trim()) {
+      onError("Please enter a question.");
+      return;
     }
-  }
 
-  function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      void ask();
+    onLoading(true);
+    try {
+      const resp = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ q, k: 6, sync: true }),
+      });
+
+      const text = await resp.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch { /* leave as empty */ }
+
+      if (!resp.ok) {
+        const detail = data?.detail || `HTTP ${resp.status}`;
+        throw new Error(detail);
+      }
+
+      onResult(data);
+    } catch (e: any) {
+      onError(e?.message || "Request failed");
+    } finally {
+      onLoading(false);
     }
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex gap-3">
       <textarea
-        className="input"
-        placeholder="e.g., Are sprinklers required on exterior balconies?"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        onKeyDown={onKey}
+        placeholder="Ask a question…"
+        className="flex-1 rounded-xl bg-neutral-900/50 border border-neutral-800 p-3 text-neutral-100 min-h-[100px]"
       />
-      <div className="flex items-center gap-3">
-        <button className="btn" onClick={ask} disabled={busy}>
-          {busy ? "Thinking…" : "Ask"}
-        </button>
-        <span className="text-zinc-400 text-sm">Tip: Cmd/Ctrl + Enter to submit</span>
-      </div>
-      {err && <div className="text-red-300 text-sm">{err}</div>}
+      <button
+        onClick={submit}
+        className="h-[48px] self-end px-4 rounded-lg bg-neutral-200 text-black font-medium hover:bg-white"
+      >
+        Ask
+      </button>
     </div>
   );
 }
