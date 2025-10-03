@@ -20,13 +20,28 @@ export default function AskForm({
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // your route.ts forces sync=true on the backend
         body: JSON.stringify({ q: q.trim(), k: 8 }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as AskResponse;
-      onResult(data);
+      const raw = await res.json();
+
+      // Normalize both shapes:
+      //  - JobStatus envelope: { result: { answer, hits } }
+      //  - Flat legacy:       { answer, hits }
+      const normalized: AskResponse = {
+        answer: raw?.result?.answer ?? raw?.answer ?? "",
+        hits: Array.isArray(raw?.result?.hits)
+          ? raw.result.hits
+          : Array.isArray(raw?.hits)
+          ? raw.hits
+          : [],
+      };
+
+      onResult(normalized);
     } catch (e: any) {
       setErr(e?.message || "Something exploded 🤷");
+      console.error("ask /api/ask error:", e);
     } finally {
       setBusy(false);
     }
@@ -52,9 +67,7 @@ export default function AskForm({
         <button className="btn" onClick={ask} disabled={busy}>
           {busy ? "Thinking…" : "Ask"}
         </button>
-        <span className="text-zinc-400 text-sm">
-          Tip: Cmd/Ctrl + Enter to submit
-        </span>
+        <span className="text-zinc-400 text-sm">Tip: Cmd/Ctrl + Enter to submit</span>
       </div>
       {err && <div className="text-red-300 text-sm">{err}</div>}
     </div>
