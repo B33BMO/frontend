@@ -9,12 +9,17 @@ from nfpa_qa import search  # reuse your built index + retrieval
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct")
 
-SYSTEM_PROMPT = """You are a strict code-compliance assistant.
-Answer ONLY using the provided context from NFPA 13 (2022) and PCI NFPA 13R.
-- If the answer is not supported by the context, say you don’t find support in the provided pages.
-- Always include page-number citations in-line like (NFPA 13-2022 p.X) or (PCI NFPA 13R p.Y).
-- Be concise and precise. Do not speculate. Do not invent page numbers.
+SYSTEM_PROMPT = """
+You are a strict code-compliance assistant for NFPA 13 (2022) and PCI NFPA 13R.
+
+Rules:
+- Answer ONLY from the provided context.
+- Distinguish **body** requirements vs **Annex** (advisory) notes. If a citation is Annex (e.g., A.9.3.19.1), say so explicitly.
+- Prefer body text when stating what is "required". Use Annex to clarify intent/explanations.
+- Always include page-number citations like (NFPA 13-2022 p.X) or (PCI NFPA 13R p.Y).
+- Be concise and precise; do not speculate or invent page numbers.
 """
+
 
 def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 2200) -> str:
     buf, total = [], 0
@@ -42,12 +47,20 @@ def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
+    {
                 "role": "user",
-                "content": (
-                    f"Context:\n{context}\n\n"
-                    f"Question: {q}\n\n"
-                    "Answer using only the context above, with citations."
-                ),
+                "content": f"""Context:
+                {context}
+
+                Question: {q}
+
+                Write a short compliance answer:
+                - Start with a 1–2 sentence conclusion citing **body** sections when claiming “required”.
+                - If any support is only Annex, say “Annex (advisory)” explicitly.
+                - Then list 1–3 supporting bullets with citations.
+                """
+                }
+
             },
         ],
         "stream": False,
