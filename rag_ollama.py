@@ -1,6 +1,5 @@
 # rag_ollama.py — use Ollama to answer with your existing retrieval
 import os
-import json
 import textwrap
 import requests
 from typing import List, Dict, Any
@@ -17,59 +16,61 @@ Answer ONLY using the provided context from NFPA 13 (2022) and PCI NFPA 13R.
 - Be concise and precise. Do not speculate. Do not invent page numbers.
 """
 
-def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 6000) -> str:
+def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 4000) -> str:
     """Concatenate the top hits with clear separators and doc/page labels."""
     buf = []
     total = 0
     for h in hits:
-        snippet = h.get("text", "").strip()
+        snippet = (h.get("text") or "").strip()
         if not snippet:
             continue
         header = f"[{h['doc']} p.{h['page']}]"
         block = f"{header}\n{snippet}\n"
         if total + len(block) > max_chars:
             break
-        buf.append(block)
-        total += len(block)
+        buf.append(block); total += len(block)
     return "\n---\n".join(buf)
 
 def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
     """Run retrieval, then ask Ollama to write the final answer using context only."""
     hits = search(q, k=k)
-
-    # If retrieval returns nothing, short-circuit.
     if not hits:
-        return {
-            "answer": "I couldn’t find anything relevant in the provided PDFs.",
-            "hits": [],
-        }
+        return {"answer": "I couldn’t find anything relevant in the provided PDFs.", "hits": []}
 
     context = hits_to_context(hits)
 
-    # chat format per Ollama API
     payload = {
         "model": OLLAMA_MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": f"Context:\n{context}\n\nQuestion: {q}\n\nWrite the answer using only the context above, with citations.",
+                "content": (
+                    f"Context:\n{context}\n\n"
+                    f"Question: {q}\n\n"
+                    "Answer using only the context above, with citations."
+                ),
             },
         ],
         "stream": False,
-        # Small models do better with low(ish) creativity for compliance text
-        "options": {"temperature": 0.2, "num_ctx": 4096},
+        "options": {
+            "temperature": 0.2,
+            "num_ctx": 4096,
+            "num_predict": 192,  # keep tight so we don’t time out
+        },
     }
 
     try:
-        resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=60)
+        resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=180)
         resp.raise_for_status()
         data = resp.json()
-        answer_text = data.get("message", {}).get("content", "").strip()
-        if not answer_text:
-            answer_text = "The model returned an empty response."
+        answer_text = (data.get("message", {}) or {}).get("content", "") or ""
+        answer_text = answer_text.strip() or "The model returned an empty response."
     except Exception as e:
-        answer_text = f"(Ollama error) Falling back to extractive answer.\n\nError: {e}\n\n" \
-                      f"Context:\n{textwrap.shorten(context, width=1200)}"
+        answer_text = (
+            "(Ollama error) Falling back to extractive answer.\n\n"
+            f"Error: {e}\n\n"
+            f"Context:\n{textwrap.shorten(context, width=1200)}"
+        )
 
     return {"answer": answer_text, "hits": hits}

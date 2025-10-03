@@ -1,12 +1,10 @@
-# api.py — FastAPI wrapper (Ollama answerer + your retrieval)
-# Run: uvicorn api:app --reload --port 8000
-
-from fastapi import FastAPI, Query
+# api.py — FastAPI wrapper (Ollama answerer + retrieval)
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 
-from rag_ollama import ask_ollama  # <— NEW
+from rag_ollama import ask_ollama  # <— actually used now
 
 app = FastAPI(title="NFPA Q&A API (Ollama)", version="1.1.0")
 
@@ -26,14 +24,18 @@ class AskResponse(BaseModel):
     answer: str
     hits: List[Hit]
 
+class AskRequest(BaseModel):
+    q: str
+    k: int = 3
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-@app.get("/ask", response_model=AskResponse)
-def ask(q: str = Query(..., min_length=3), k: int = 8):
-    result = ask_ollama(q, k=k)
-    # Shape normalization
-    answer = result.get("answer", "")
-    hits = result.get("hits", []) or []
-    return {"answer": answer, "hits": hits}
+@app.get("/api/ask", response_model=AskResponse)
+def ask_get(q: str, k: int = 3):
+    return ask_ollama(q, k=k)
+
+@app.post("/api/ask", response_model=AskResponse)
+def ask_post(body: AskRequest):
+    return ask_ollama(body.q, k=body.k)

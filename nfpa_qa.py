@@ -1,38 +1,32 @@
 #!/usr/bin/env python3
 """
-nfpa_qa.py — tiny local RAG over:
+nfpa_qa.py — tiny local RAG index over:
   - NFPA 13-2022 (edufire mirror)
-  - PCI NFPA 13R PDF
+  - PCI NFPA 13R (PCI PDF)
 
-Features
-- Per-page parsing, chunking with overlap, page-aware citations
-- Embeddings:
-    * If OPENAI_API_KEY is set -> use OpenAI text-embedding-3-small (no torch).
-    * Else -> use sentence-transformers all-MiniLM-L6-v2 (requires torch).
-- Retrieval: cosine similarity (NumPy) + BM25 (rank-bm25) hybrid
-- Exports:
-    search(q, k=8) -> [{doc, page, text, score}]
-    format_answer(q, hits) -> stitched extractive answer + inline citations
-- CLI:
-    python nfpa_qa.py --build
-    python nfpa_qa.py --ask "When are sprinklers required on exterior balconies?"
+Fast path tuned:
+- RAM caches for corpus/embeddings/BM25 and lazy SentenceTransformer
+- Hybrid retrieval (cosine + BM25)
+- Optional OpenAI embeddings if OPENAI_API_KEY is set; else sentence-transformers
+
+CLI:
+  python nfpa_qa.py --build
+  python nfpa_qa.py --ask "Are sprinklers required on exterior balconies?"
 """
 
 from __future__ import annotations
-import os, sys, json, re, pathlib, textwrap, argparse, shutil
+import os, json, re, pathlib, argparse, textwrap, sys
 from typing import List, Dict, Any, Tuple
 
 import numpy as np
 from tqdm import tqdm
 
-# ----------- Paths / Config -----------
+# ---------------- Paths / Config ----------------
 BASE = pathlib.Path(__file__).parent.resolve()
 DATA = BASE / "data"
 STORE = BASE / "store"
-DATA.mkdir(exist_ok=True)
-STORE.mkdir(exist_ok=True)
+DATA.mkdir(exist_ok=True); STORE.mkdir(exist_ok=True)
 
-# Source PDFs
 PDFS = [
     {
         "name": "NFPA 13-2022",
@@ -46,21 +40,22 @@ PDFS = [
     },
 ]
 
-# Chunking
 MAX_CHARS = 1200
 OVERLAP   = 200
 
-# Embedding mode
 USE_OPENAI_EMB = bool(os.environ.get("OPENAI_API_KEY"))
 OPENAI_MODEL   = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 
-# Store files
-EMBS_NPY   = STORE / "embs.npy"
-CORPUS_JSON= STORE / "corpus.json"
-BM25_TXT   = STORE / "bm25_texts.json"
+EMBS_NPY     = STORE / "embs.npy"
+CORPUS_JSON  = STORE / "corpus.json"
+BM25_TXT     = STORE / "bm25_texts.json"
 
+# ---------------- Hot caches ----------------
+_INDEX: Tuple[List[Dict[str, Any]], List[str], np.ndarray] | None = None
+_BM25 = None
+_SENT_MODEL = None
 
-# ----------- Utilities -----------
+# ---------------- Utils ----------------
 def dl(url: str, out: pathlib.Path, timeout: int = 60) -> None:
     import requests
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -68,8 +63,7 @@ def dl(url: str, out: pathlib.Path, timeout: int = 60) -> None:
         r.raise_for_status()
         with open(out, "wb") as f:
             for chunk in r.iter_content(8192):
-                if chunk:
-                    f.write(chunk)
+                if chunk: f.write(chunk)
 
 def normalize_space(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
@@ -78,12 +72,11 @@ def read_pdf_pages(pdf_path: pathlib.Path) -> List[str]:
     from pypdf import PdfReader
     reader = PdfReader(str(pdf_path))
     pages: List[str] = []
-    for i, page in enumerate(reader.pages):
+    for page in reader.pages:
         try:
             txt = page.extract_text() or ""
         except Exception:
             txt = ""
-        # tidy line breaks just a little
         txt = re.sub(r"[ \t]+\n", "\n", txt)
         txt = re.sub(r"\n{3,}", "\n\n", txt).strip()
         pages.append(txt)
@@ -107,6 +100,13 @@ def chunkify(pages: List[str], max_chars=MAX_CHARS, overlap=OVERLAP) -> List[Tup
             start = max(0, end - overlap)
     return chunks
 
+def save_json(path: pathlib.Path, obj: Any) -> None:
+    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2))
+
+def load_json(path: pathlib.Path) -> Any:
+    return json.loads(path.read_text())
+
+# ---------------- Build / Load ----------------
 def build_corpus() -> List[Dict[str, Any]]:
     corpus: List[Dict[str, Any]] = []
     for meta in PDFS:
@@ -124,21 +124,37 @@ def build_corpus() -> List[Dict[str, Any]]:
             })
     return corpus
 
-def save_json(path: pathlib.Path, obj: Any) -> None:
-    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2))
+def build_index() -> None:
+    corpus = build_corpus()
+    texts  = [c["text"] for c in corpus]
+    print(f"Total chunks: {len(texts)}")
 
-def load_json(path: pathlib.Path) -> Any:
-    return json.loads(path.read_text())
+    print("Embedding…")
+    embs = embed_texts(texts)
+    embs = embs.astype("float32")
+    print("Saving store…")
+    np.save(EMBS_NPY, embs)
+    save_json(CORPUS_JSON, corpus)
+    save_json(BM25_TXT, texts)
+    print("Index built ✅")
 
+def load_index_cached() -> Tuple[List[Dict[str, Any]], List[str], np.ndarray]:
+    global _INDEX
+    if _INDEX is not None:
+        return _INDEX
+    if not (EMBS_NPY.exists() and CORPUS_JSON.exists() and BM25_TXT.exists()):
+        raise RuntimeError("Index not built. Run: python nfpa_qa.py --build")
+    corpus = load_json(CORPUS_JSON)
+    texts  = load_json(BM25_TXT)
+    embs   = np.load(EMBS_NPY)
+    _INDEX = (corpus, texts, embs)
+    return _INDEX
 
-# ----------- Embeddings -----------
+# ---------------- Embeddings ----------------
 def embed_openai(texts: List[str]) -> np.ndarray:
-    """OpenAI embeddings (if OPENAI_API_KEY set) – no torch dependency."""
     import json, urllib.request
     key = os.environ["OPENAI_API_KEY"]
     url = "https://api.openai.com/v1/embeddings"
-
-    # OpenAI accepts up to a decent batch; we’ll do simple 1 batch for simplicity
     body = json.dumps({"model": OPENAI_MODEL, "input": texts}).encode("utf-8")
     req = urllib.request.Request(
         url, data=body,
@@ -147,16 +163,16 @@ def embed_openai(texts: List[str]) -> np.ndarray:
     with urllib.request.urlopen(req, timeout=60) as resp:
         data = json.loads(resp.read())
     embs = np.array([d["embedding"] for d in data["data"]], dtype="float32")
-    # L2-normalize for cosine
     embs /= (np.linalg.norm(embs, axis=1, keepdims=True) + 1e-12)
     return embs
 
 def embed_local(texts: List[str]) -> np.ndarray:
-    """Local sentence-transformers embeddings (requires torch)."""
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    embs = model.encode(
-        texts, batch_size=64, show_progress_bar=True,
+    global _SENT_MODEL
+    if _SENT_MODEL is None:
+        from sentence_transformers import SentenceTransformer
+        _SENT_MODEL = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    embs = _SENT_MODEL.encode(
+        texts, batch_size=64, show_progress_bar=False,
         convert_to_numpy=True, normalize_embeddings=True
     )
     return embs.astype("float32")
@@ -166,52 +182,28 @@ def embed_texts(texts: List[str]) -> np.ndarray:
         return embed_openai(texts)
     return embed_local(texts)
 
-
-# ----------- Build / Load index -----------
-def build_index() -> None:
-    print("Building corpus…")
-    corpus = build_corpus()
-    texts  = [c["text"] for c in corpus]
-    print(f"Total chunks: {len(texts)}")
-
-    print("Embedding…")
-    embs = embed_texts(texts)  # (N, D)
-    assert embs.shape[0] == len(texts), "Embeddings count mismatch"
-
-    print("Saving store…")
-    np.save(EMBS_NPY, embs)
-    save_json(CORPUS_JSON, corpus)
-    save_json(BM25_TXT, texts)
-    print("Index built ✅")
-
-def load_index() -> Tuple[List[Dict[str, Any]], List[str], np.ndarray]:
-    if not (EMBS_NPY.exists() and CORPUS_JSON.exists() and BM25_TXT.exists()):
-        raise RuntimeError("Index not built. Run: python nfpa_qa.py --build")
-    corpus = load_json(CORPUS_JSON)
-    texts  = load_json(BM25_TXT)
-    embs   = np.load(EMBS_NPY)
-    return corpus, texts, embs
-
-
-# ----------- Search -----------
+# ---------------- Retrieval ----------------
 def _semantic_search(q: str, texts: List[str], embs: np.ndarray, topk: int) -> List[Tuple[int, float]]:
-    qvec = embed_texts([q])[0]          # (D,)
-    sims = embs @ qvec                  # cosine since embs are normalized
+    qvec = embed_texts([q])[0]
+    sims = embs @ qvec  # cosine because normalized
     idxs = np.argsort(-sims)[:topk]
     return [(int(i), float(sims[i])) for i in idxs]
 
+def _get_bm25(texts: List[str]):
+    global _BM25
+    if _BM25 is None:
+        from rank_bm25 import BM25Okapi
+        tokenized = [t.lower().split() for t in texts]
+        _BM25 = BM25Okapi(tokenized)
+    return _BM25
+
 def _bm25_scores(q: str, texts: List[str], topk: int) -> List[Tuple[int, float]]:
-    from rank_bm25 import BM25Okapi
-    tokenized = [t.lower().split() for t in texts]
-    bm25 = BM25Okapi(tokenized)
+    bm25 = _get_bm25(texts)
     top_idx = bm25.get_top_n(q.lower().split(), list(range(len(texts))), n=topk)
-    # pseudo scores: higher for earlier rank
     return [(int(i), float(topk - r)) for r, i in enumerate(top_idx)]
 
 def search(query: str, k: int = 8) -> List[Dict[str, Any]]:
-    """Hybrid retrieval: cosine + BM25 with simple additive fusion."""
-    corpus, texts, embs = load_index()
-
+    corpus, texts, embs = load_index_cached()
     sem_hits = _semantic_search(query, texts, embs, k)
     bm_hits  = _bm25_scores(query, texts, k)
 
@@ -231,21 +223,14 @@ def search(query: str, k: int = 8) -> List[Dict[str, Any]]:
         })
     return results
 
-
-# ----------- Answer stitcher (extractive fallback) -----------
+# ---------------- Extractive fallback ----------------
 def format_answer(q: str, hits: List[Dict[str, Any]]) -> str:
-    """
-    Simple extractive answer used as a fallback (and for quick CLI).
-    Ollama path (rag_ollama.py) will do the generative composition instead.
-    """
     if not hits:
         return "I couldn’t find anything relevant in the two PDFs."
 
-    # stitch top passages, prefer ones that include query terms
     key_terms = re.sub(r"[^a-z0-9 ]+", " ", q.lower()).split()
     passages = [h["text"] for h in hits[:6]]
     stitched = " ".join(passages)
-    # Trim stitched to avoid massive blobs
     stitched = (stitched[:2200] + "…") if len(stitched) > 2200 else stitched
 
     keep: List[str] = []
@@ -256,23 +241,20 @@ def format_answer(q: str, hits: List[Dict[str, Any]]) -> str:
         if len(keep) >= 6:
             break
 
-    draft = " ".join(keep).strip()
-    cites = []
-    for h in hits[:4]:
-        cites.append(f"({h['doc']} p.{h['page']})")
+    cites = [f"({h['doc']} p.{h['page']})" for h in hits[:4]]
     cites_str = ", ".join(sorted(set(cites), key=cites.index))
-    return f"{draft}\n\nSources: {cites_str}"
+    return f"{' '.join(keep).strip()}\n\nSources: {cites_str}"
 
 
-# ----------- CLI -----------
-def _run_build() -> None:
+# ---------------- CLI ----------------
+def _run_build():
     try:
         build_index()
     except Exception as e:
         print(f"Build failed: {e}")
         sys.exit(1)
 
-def _run_query(q: str, k: int) -> None:
+def _run_query(q: str, k: int):
     try:
         hits = search(q, k=k)
     except Exception as e:
@@ -286,11 +268,11 @@ def _run_query(q: str, k: int) -> None:
         snippet = textwrap.shorten(r["text"], width=120)
         print(f" - {r['doc']} p.{r['page']}  score={r['score']}\n   {snippet}")
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Tiny NFPA 13/13R QA (index + hybrid retrieval)")
-    ap.add_argument("--build", action="store_true", help="(re)build the local index")
-    ap.add_argument("--ask", type=str, help="ask a question (extractive fallback answer)")
-    ap.add_argument("-k", type=int, default=8, help="top-k to retrieve")
+def main():
+    ap = argparse.ArgumentParser(description="NFPA 13/13R RAG index")
+    ap.add_argument("--build", action="store_true")
+    ap.add_argument("--ask", type=str)
+    ap.add_argument("-k", type=int, default=8)
     args = ap.parse_args()
 
     if args.build:
