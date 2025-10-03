@@ -54,7 +54,7 @@ def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
         "options": {
             "temperature": 0.2,
             "num_ctx": 3072,
-            "num_predict": 64,  # keep it snappy
+            "num_predict": 160,  # keep it snappy
         },
     }
 
