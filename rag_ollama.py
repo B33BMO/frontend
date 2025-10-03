@@ -1,4 +1,4 @@
-# rag_ollama.py — use Ollama to answer with your existing retrieval
+# rag_ollama.py — Ollama backed answerer with retrieval
 import os
 import textwrap
 import requests
@@ -16,10 +16,8 @@ Answer ONLY using the provided context from NFPA 13 (2022) and PCI NFPA 13R.
 - Be concise and precise. Do not speculate. Do not invent page numbers.
 """
 
-def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 4000) -> str:
-    """Concatenate the top hits with clear separators and doc/page labels."""
-    buf = []
-    total = 0
+def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 3500) -> str:
+    buf, total = [], 0
     for h in hits:
         snippet = (h.get("text") or "").strip()
         if not snippet:
@@ -28,11 +26,11 @@ def hits_to_context(hits: List[Dict[str, Any]], max_chars: int = 4000) -> str:
         block = f"{header}\n{snippet}\n"
         if total + len(block) > max_chars:
             break
-        buf.append(block); total += len(block)
+        buf.append(block)
+        total += len(block)
     return "\n---\n".join(buf)
 
 def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
-    """Run retrieval, then ask Ollama to write the final answer using context only."""
     hits = search(q, k=k)
     if not hits:
         return {"answer": "I couldn’t find anything relevant in the provided PDFs.", "hits": []}
@@ -56,12 +54,13 @@ def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
         "options": {
             "temperature": 0.2,
             "num_ctx": 4096,
-            "num_predict": 192,  # keep tight so we don’t time out
+            "num_predict": 128,  # keep it snappy
         },
     }
 
     try:
-        resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=180)
+        # client-side timeout so we never block forever at this layer
+        resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=45)
         resp.raise_for_status()
         data = resp.json()
         answer_text = (data.get("message", {}) or {}).get("content", "") or ""
