@@ -60,7 +60,7 @@ def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
 
     try:
         # client-side timeout so we never block forever at this layer
-        resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=60)
+        resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=100)
         resp.raise_for_status()
         data = resp.json()
         answer_text = (data.get("message", {}) or {}).get("content", "") or ""

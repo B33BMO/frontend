@@ -13,7 +13,7 @@ const ASK_PATH = "/api/ask";
 
 // Simple fetch with timeout helper
 async function fetchWithTimeout(resource: string, options: RequestInit & { timeout?: number } = {}) {
-  const { timeout = 30000, ...opts } = options;
+  const { timeout = 300000, ...opts } = options;
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
