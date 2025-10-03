@@ -1,3 +1,4 @@
+// AskForm.tsx
 "use client";
 
 import { useState } from "react";
@@ -20,15 +21,16 @@ export default function AskForm({
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // your route.ts forces sync=true on the backend
-        body: JSON.stringify({ q: q.trim(), k: 8 }),
+        body: JSON.stringify({ q: q.trim(), k: 6 }), // keep k modest
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw = await res.json();
+      const text = await res.text();       // read as text first
+      let raw: any = null;
+      try { raw = JSON.parse(text); } catch { /* not JSON? */ }
 
-      // Normalize both shapes:
-      //  - JobStatus envelope: { result: { answer, hits } }
-      //  - Flat legacy:       { answer, hits }
+      console.log("[/api/ask] status", res.status, "raw:", raw ?? text);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
+
       const normalized: AskResponse = {
         answer: raw?.result?.answer ?? raw?.answer ?? "",
         hits: Array.isArray(raw?.result?.hits)
@@ -38,9 +40,13 @@ export default function AskForm({
           : [],
       };
 
+      // Ensure we always show something
+      if (!normalized.answer) normalized.answer = "(empty answer)";
       onResult(normalized);
     } catch (e: any) {
-      setErr(e?.message || "Something exploded 🤷");
+      setErr(e?.message || "Request failed");
+      // also push something up so the page shows a box
+      onResult({ answer: `(error) ${e?.message || "Request failed"}`, hits: [] });
       console.error("ask /api/ask error:", e);
     } finally {
       setBusy(false);
