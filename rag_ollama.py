@@ -54,13 +54,13 @@ def ask_ollama(q: str, k: int = 8) -> Dict[str, Any]:
         "options": {
             "temperature": 0.2,
             "num_ctx": 4096,
-            "num_predict": 128,  # keep it snappy
+            "num_predict": 96,  # keep it snappy
         },
     }
 
     try:
         # client-side timeout so we never block forever at this layer
-        resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=45)
+        resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=60)
         resp.raise_for_status()
         data = resp.json()
         answer_text = (data.get("message", {}) or {}).get("content", "") or ""
