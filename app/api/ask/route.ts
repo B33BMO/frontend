@@ -80,12 +80,15 @@ export async function POST(req: Request) {
 
     const backendURL = new URL(ASK_PATH, BACKEND_ORIGIN);
 
+    payload.sync = true;                 // force synchronous answer
+    payload.k = Number(payload.k) || 6;  // default k
     const resp = await fetchWithTimeout(backendURL.toString(), {
       method: "POST",
-      headers: { "content-type": "application/json", "accept": "application/json" },
-      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(payload),     // <— no undefined vars now
       timeout: payload.sync ? 60000 : 30000,
     });
+
 
     const text = await resp.text();
     return new Response(text, {
